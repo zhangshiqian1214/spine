@@ -92,6 +92,8 @@ private:
 	bool debug_attachment_skinned_mesh;
 	bool debug_attachment_bounding_box;
 	String current_animation;
+	float duration; // Handled as a property, but never set in the setter
+	float actual_duration; // Store the actual length of the animation
 	bool loop;
 	String skin;
 
@@ -147,10 +149,11 @@ public:
 	Array get_animation_names() const;
 
 	bool has_animation(const String& p_name);
+	void set_default_mix(real_t p_duration);
 	void mix(const String& p_from, const String& p_to, real_t p_duration);
 
-	bool play(const String& p_name, real_t p_cunstom_scale = 1.0f, bool p_loop = false, int p_track = 0, int p_delay = 0);
-	bool add(const String& p_name, real_t p_cunstom_scale = 1.0f, bool p_loop = false, int p_track = 0, int p_delay = 0);
+	bool play(const String& p_name, bool p_loop = false, int p_track = 0, int p_delay = 0);
+	bool add(const String& p_name, bool p_loop = false, int p_track = 0, int p_delay = 0);
 	void clear(int p_track = -1);
 	void stop();
 	bool is_playing(int p_track = 0) const;
@@ -159,7 +162,7 @@ public:
 	bool is_forward() const;
 	void set_skip_frames(int p_skip_frames);
 	int get_skip_frames() const;
-	String get_current_animation(int p_track = 0) const;
+	String get_current_animation(int p_track);
 	void stop_all();
 	void reset();
 	void seek(float p_pos);
@@ -181,6 +184,9 @@ public:
 	void set_flip_y(bool p_flip);
 	bool is_flip_x() const;
 	bool is_flip_y() const;
+
+	void set_duration(float p_duration);
+	float get_duration() const;
 
 	void set_animation_process_mode(AnimationProcessMode p_mode);
 	AnimationProcessMode get_animation_process_mode() const;

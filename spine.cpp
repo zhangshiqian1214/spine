@@ -148,10 +148,7 @@ void Spine::_animation_draw() {
 	if (skeleton == NULL)
 		return;
 
-	skeleton->r = modulate.r;
-	skeleton->g = modulate.g;
-	skeleton->b = modulate.b;
-	skeleton->a = modulate.a;
+	spColor_setFromFloats(&skeleton->color, modulate.r, modulate.g, modulate.b, modulate.a);
 
 	int additive = 0;
 	int fx_additive = 0;
@@ -180,33 +177,33 @@ void Spine::_animation_draw() {
 
 				spRegionAttachment *attachment = (spRegionAttachment *)slot->attachment;
 				is_fx = strstr(attachment->path, fx_prefix) != NULL;
-				spRegionAttachment_computeWorldVertices(attachment, slot->bone, world_verts.ptrw());
+				spRegionAttachment_computeWorldVertices(attachment, slot->bone, world_verts.ptrw(), 0, 2);
 				texture = spine_get_texture(attachment);
 				uvs = attachment->uvs;
 				verties_count = 8;
 				static unsigned short quadTriangles[6] = { 0, 1, 2, 2, 3, 0 };
 				triangles = quadTriangles;
 				triangles_count = 6;
-				r = attachment->r;
-				g = attachment->g;
-				b = attachment->b;
-				a = attachment->a;
+				r = attachment->color.r;
+				g = attachment->color.g;
+				b = attachment->color.b;
+				a = attachment->color.a;
 				break;
 			}
 			case SP_ATTACHMENT_MESH: {
 
 				spMeshAttachment *attachment = (spMeshAttachment *)slot->attachment;
 				is_fx = strstr(attachment->path, fx_prefix) != NULL;
-				spMeshAttachment_computeWorldVertices(attachment, slot, world_verts.ptrw());
+				spVertexAttachment_computeWorldVertices(SUPER(attachment), slot, 0, attachment->super.worldVerticesLength, world_verts.ptrw(), 0, 2);
 				texture = spine_get_texture(attachment);
 				uvs = attachment->uvs;
 				verties_count = ((spVertexAttachment *)attachment)->worldVerticesLength;
 				triangles = attachment->triangles;
 				triangles_count = attachment->trianglesCount;
-				r = attachment->r;
-				g = attachment->g;
-				b = attachment->b;
-				a = attachment->a;
+				r = attachment->color.r;
+				g = attachment->color.g;
+				b = attachment->color.b;
+				a = attachment->color.a;
 				break;
 			}
 
@@ -236,10 +233,10 @@ void Spine::_animation_draw() {
 		}
 		 */
 
-		color.a = skeleton->a * slot->a * a;
-		color.r = skeleton->r * slot->r * r;
-		color.g = skeleton->g * slot->g * g;
-		color.b = skeleton->b * slot->b * b;
+		color.a = skeleton->color.a * slot->color.a * a;
+		color.r = skeleton->color.r * slot->color.r * r;
+		color.g = skeleton->color.g * slot->color.g * g;
+		color.b = skeleton->color.b * slot->color.b * b;
 
 		if (is_fx)
 			fx_batcher.add(texture, world_verts.ptr(), uvs, verties_count, triangles, triangles_count, &color, flip_x, flip_y);
@@ -265,7 +262,7 @@ void Spine::_animation_draw() {
 						continue;
 					spRegionAttachment *attachment = (spRegionAttachment *)slot->attachment;
 					verties_count = 8;
-					spRegionAttachment_computeWorldVertices(attachment, slot->bone, world_verts.ptrw());
+					spRegionAttachment_computeWorldVertices(attachment, slot->bone, world_verts.ptrw(), 0, 2);
 					color = Color(0, 0, 1, 1);
 					triangles = NULL;
 					triangles_count = 0;
@@ -276,7 +273,7 @@ void Spine::_animation_draw() {
 					if (!debug_attachment_mesh)
 						continue;
 					spMeshAttachment *attachment = (spMeshAttachment *)slot->attachment;
-					spMeshAttachment_computeWorldVertices(attachment, slot, world_verts.ptrw());
+					spVertexAttachment_computeWorldVertices(SUPER(attachment), slot, 0, attachment->super.worldVerticesLength, world_verts.ptrw(), 0, 2);
 					verties_count = ((spVertexAttachment *)attachment)->verticesCount;
 					color = Color(0, 1, 1, 1);
 					triangles = attachment->triangles;
@@ -288,7 +285,7 @@ void Spine::_animation_draw() {
 					if (!debug_attachment_bounding_box)
 						continue;
 					spBoundingBoxAttachment *attachment = (spBoundingBoxAttachment *)slot->attachment;
-					spBoundingBoxAttachment_computeWorldVertices(attachment, slot, world_verts.ptrw());
+					spVertexAttachment_computeWorldVertices(SUPER(attachment), slot, 0, ((spVertexAttachment *)attachment)->verticesCount, world_verts.ptrw(), 0, 2);
 					verties_count = ((spVertexAttachment *)attachment)->verticesCount;
 					color = Color(0, 1, 0, 1);
 					triangles = NULL;
@@ -431,6 +428,13 @@ bool Spine::_set(const StringName &p_name, const Variant &p_value) {
 			}
 		} else
 			current_animation = which;
+
+		if (current_animation == "[stop]")
+			actual_duration = 0.0;
+		else
+			actual_duration = get_animation_length(current_animation);
+		// Call this immediately to make the duration visible
+		set_duration(actual_duration);
 	} else if (name == "playback/loop") {
 
 		loop = p_value;
@@ -499,7 +503,6 @@ void Spine::_get_property_list(List<PropertyInfo> *p_list) const {
 	if (state != NULL) {
 
 		for (int i = 0; i < state->data->skeletonData->animationsCount; i++) {
-
 			names.push_back(state->data->skeletonData->animations[i]->name);
 		}
 	}
@@ -656,13 +659,20 @@ bool Spine::has_animation(const String &p_name) {
 	return animation != NULL;
 }
 
+void Spine::set_default_mix(real_t p_duration) {
+
+	ERR_FAIL_COND(state == NULL);
+	ERR_FAIL_COND(p_duration <= 0.0f);
+	state->data->defaultMix = p_duration;
+}
+
 void Spine::mix(const String &p_from, const String &p_to, real_t p_duration) {
 
 	ERR_FAIL_COND(state == NULL);
 	spAnimationStateData_setMixByName(state->data, p_from.utf8().get_data(), p_to.utf8().get_data(), p_duration);
 }
 
-bool Spine::play(const String &p_name, real_t p_cunstom_scale, bool p_loop, int p_track, int p_delay) {
+bool Spine::play(const String &p_name, bool p_loop, int p_track, int p_delay) {
 
 	ERR_FAIL_COND_V(skeleton == NULL, false);
 	spAnimation *animation = spSkeletonData_findAnimation(skeleton->data, p_name.utf8().get_data());
@@ -683,7 +693,7 @@ bool Spine::play(const String &p_name, real_t p_cunstom_scale, bool p_loop, int 
 	return true;
 }
 
-bool Spine::add(const String &p_name, real_t p_cunstom_scale, bool p_loop, int p_track, int p_delay) {
+bool Spine::add(const String &p_name, bool p_loop, int p_track, int p_delay) {
 
 	ERR_FAIL_COND_V(skeleton == NULL, false);
 	spAnimation *animation = spSkeletonData_findAnimation(skeleton->data, p_name.utf8().get_data());
@@ -737,7 +747,7 @@ int Spine::get_skip_frames() const {
 	return skip_frames;
 }
 
-String Spine::get_current_animation(int p_track) const {
+String Spine::get_current_animation(int p_track = 0) {
 
 	ERR_FAIL_COND_V(state == NULL, "");
 	spTrackEntry *entry = spAnimationState_getCurrent(state, p_track);
@@ -846,6 +856,17 @@ bool Spine::set_skin(const String &p_name) {
 	return spSkeleton_setSkinByName(skeleton, p_name.utf8().get_data()) ? true : false;
 }
 
+void Spine::set_duration(float p_duration) {
+	// Ignore p_duration, because it can't actually be affected and this should be read-only
+	duration = actual_duration;
+	update();
+	_change_notify("playback/duration");
+}
+
+float Spine::get_duration() const {
+	return duration;
+}
+
 Dictionary Spine::get_skeleton() const {
 
 	ERR_FAIL_COND_V(skeleton == NULL, Variant());
@@ -885,7 +906,7 @@ Dictionary Spine::get_attachment(const String &p_slot_name, const String &p_atta
 			dict["rotation"] = info->rotation;
 			dict["width"] = info->width;
 			dict["height"] = info->height;
-			dict["color"] = Color(info->r, info->g, info->b, info->a);
+			dict["color"] = Color(info->color.r, info->color.g, info->color.b, info->color.a);
 			dict["region"] = Rect2(info->regionOffsetX, info->regionOffsetY, info->regionWidth, info->regionHeight);
 			dict["region_original_size"] = Size2(info->regionOriginalWidth, info->regionOriginalHeight);
 
@@ -915,7 +936,7 @@ Dictionary Spine::get_attachment(const String &p_slot_name, const String &p_atta
 			spMeshAttachment *info = (spMeshAttachment *)attachment;
 			dict["type"] = "mesh";
 			dict["path"] = info->path;
-			dict["color"] = Color(info->r, info->g, info->b, info->a);
+			dict["color"] = Color(info->color.r, info->color.g, info->color.b, info->color.a);
 		} break;
 	}
 	return dict;
@@ -956,7 +977,7 @@ Dictionary Spine::get_slot(const String &p_slot_name) const {
 	spSlot *slot = spSkeleton_findSlot(skeleton, p_slot_name.utf8().get_data());
 	ERR_FAIL_COND_V(slot == NULL, Variant());
 	Dictionary dict;
-	dict["color"] = Color(slot->r, slot->g, slot->b, slot->a);
+	dict["color"] = Color(slot->color.r, slot->color.g, slot->color.b, slot->color.a);
 	return dict;
 }
 
@@ -1159,14 +1180,15 @@ void Spine::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_animation_names"), &Spine::get_animation_names);
 	ClassDB::bind_method(D_METHOD("has_animation", "name"), &Spine::has_animation);
 
+	ClassDB::bind_method(D_METHOD("set_default_mix", "duration"), &Spine::set_default_mix);
 	ClassDB::bind_method(D_METHOD("mix", "from", "to", "duration"), &Spine::mix, 0);
-	ClassDB::bind_method(D_METHOD("play", "name", "cunstom_scale", "loop", "track", "delay"), &Spine::play, 1.0f, false, 0, 0);
-	ClassDB::bind_method(D_METHOD("add", "name", "cunstom_scale", "loop", "track", "delay"), &Spine::add, 1.0f, false, 0, 0);
+	ClassDB::bind_method(D_METHOD("play", "name", "loop", "track", "delay"), &Spine::play, 1.0f, false, 0, 0);
+	ClassDB::bind_method(D_METHOD("add", "name", "loop", "track", "delay"), &Spine::add, 1.0f, false, 0, 0);
 	ClassDB::bind_method(D_METHOD("clear", "track"), &Spine::clear);
 	ClassDB::bind_method(D_METHOD("stop"), &Spine::stop);
-	ClassDB::bind_method(D_METHOD("is_playing", "track"), &Spine::is_playing);
+	ClassDB::bind_method(D_METHOD("is_playing", "track"), &Spine::is_playing, DEFVAL(0));
 
-	ClassDB::bind_method(D_METHOD("get_current_animation"), &Spine::get_current_animation);
+	ClassDB::bind_method(D_METHOD("get_current_animation", "p_track"), &Spine::get_current_animation, DEFVAL(0));
 	ClassDB::bind_method(D_METHOD("stop_all"), &Spine::stop_all);
 	ClassDB::bind_method(D_METHOD("reset"), &Spine::reset);
 	ClassDB::bind_method(D_METHOD("seek", "pos"), &Spine::seek);
@@ -1183,6 +1205,8 @@ void Spine::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_flip_y", "fliped"), &Spine::set_flip_y);
 	ClassDB::bind_method(D_METHOD("is_flip_y"), &Spine::is_flip_y);
 	ClassDB::bind_method(D_METHOD("set_skin", "skin"), &Spine::set_skin);
+	ClassDB::bind_method(D_METHOD("set_duration", "p_duration"), &Spine::set_duration);
+	ClassDB::bind_method(D_METHOD("get_duration"), &Spine::get_duration);
 	ClassDB::bind_method(D_METHOD("set_animation_process_mode", "mode"), &Spine::set_animation_process_mode);
 	ClassDB::bind_method(D_METHOD("get_animation_process_mode"), &Spine::get_animation_process_mode);
 	ClassDB::bind_method(D_METHOD("get_skeleton"), &Spine::get_skeleton);
@@ -1217,19 +1241,21 @@ void Spine::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_y"), "set_flip_y", "is_flip_y");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "fx_prefix"), "set_fx_slot_prefix", "get_fx_slot_prefix");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "resource", PROPERTY_HINT_RESOURCE_TYPE, "SpineResource"), "set_resource", "get_resource"); //, PROPERTY_USAGE_NOEDITOR));
+	ADD_PROPERTY(PropertyInfo(Variant::REAL, "playback/duration", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR), "set_duration", "get_duration");
+
 
 	ADD_SIGNAL(MethodInfo("animation_start", PropertyInfo(Variant::INT, "track")));
 	ADD_SIGNAL(MethodInfo("animation_complete", PropertyInfo(Variant::INT, "track"), PropertyInfo(Variant::INT, "loop_count")));
 	ADD_SIGNAL(MethodInfo("animation_event", PropertyInfo(Variant::INT, "track"), PropertyInfo(Variant::DICTIONARY, "event")));
 	ADD_SIGNAL(MethodInfo("animation_end", PropertyInfo(Variant::INT, "track")));
 
-	BIND_CONSTANT(ANIMATION_PROCESS_FIXED);
-	BIND_CONSTANT(ANIMATION_PROCESS_IDLE);
+	BIND_ENUM_CONSTANT(ANIMATION_PROCESS_FIXED);
+	BIND_ENUM_CONSTANT(ANIMATION_PROCESS_IDLE);
 
-	BIND_CONSTANT(DEBUG_ATTACHMENT_REGION);
-	BIND_CONSTANT(DEBUG_ATTACHMENT_MESH);
-	BIND_CONSTANT(DEBUG_ATTACHMENT_SKINNED_MESH);
-	BIND_CONSTANT(DEBUG_ATTACHMENT_BOUNDING_BOX);
+	BIND_ENUM_CONSTANT(DEBUG_ATTACHMENT_REGION);
+	BIND_ENUM_CONSTANT(DEBUG_ATTACHMENT_MESH);
+	BIND_ENUM_CONSTANT(DEBUG_ATTACHMENT_SKINNED_MESH);
+	BIND_ENUM_CONSTANT(DEBUG_ATTACHMENT_BOUNDING_BOX);
 }
 
 Rect2 Spine::_edit_get_rect() const {
@@ -1246,11 +1272,11 @@ Rect2 Spine::_edit_get_rect() const {
 		int verticesCount;
 		if (slot->attachment->type == SP_ATTACHMENT_REGION) {
 			spRegionAttachment *attachment = (spRegionAttachment *)slot->attachment;
-			spRegionAttachment_computeWorldVertices(attachment, slot->bone, world_verts.ptrw());
+			spRegionAttachment_computeWorldVertices(attachment, slot->bone, world_verts.ptrw(), 0, 2);
 			verticesCount = 8;
 		} else if (slot->attachment->type == SP_ATTACHMENT_MESH) {
 			spMeshAttachment *mesh = (spMeshAttachment *)slot->attachment;
-			spMeshAttachment_computeWorldVertices(mesh, slot, world_verts.ptrw());
+			spVertexAttachment_computeWorldVertices(SUPER(mesh), slot, 0, mesh->super.worldVerticesLength, world_verts.ptrw(), 0, 2);
 			verticesCount = ((spVertexAttachment *)mesh)->worldVerticesLength;
 		} else
 			continue;
@@ -1327,6 +1353,8 @@ Spine::Spine()
 
 	skin = "";
 	current_animation = "[stop]";
+	duration = 0.0;
+	actual_duration = 0.0;
 	loop = true;
 	fx_slot_prefix = String("fx/").utf8();
 
